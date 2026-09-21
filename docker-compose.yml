@@ -1,0 +1,66 @@
+# Local AI Studio — the studio and its inference platform, on your own GPU.
+#
+#   docker compose up -d --build
+#   docker compose run --rm local-ai python -m server.cli install flux1-schnell
+#   open http://localhost:3000
+#
+# Requires the NVIDIA Container Toolkit on the host. Docker does not remove the
+# driver dependency; it removes the Python/CUDA install from your problem list.
+# Verify the host first:  docker run --rm --gpus all nvidia/cuda:12.8.1-base-ubuntu24.04 nvidia-smi
+
+services:
+  local-ai:
+    build:
+      context: ./local-ai
+    image: openhiggsfield/local-ai:0.1.0
+    restart: unless-stopped
+    ports:
+      # Published because the BROWSER fetches generated images straight from
+      # this service — the studio only ever hands it a URL.
+      - "${LOCAL_AI_PORT:-8000}:8000"
+    environment:
+      AI_ROOT: /data
+      AI_DEVICE: ${AI_DEVICE:-auto}
+      AI_DTYPE: ${AI_DTYPE:-bfloat16}
+      AI_RESIDENT_MODELS: ${AI_RESIDENT_MODELS:-1}
+      AI_OFFLINE: ${AI_OFFLINE:-false}
+      # Must list the origin the browser loads the studio from, or downloads
+      # (which go through fetch) are blocked even though the images render.
+      AI_CORS_ORIGINS: ${AI_CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      # Only needed for gated repositories such as FLUX.1-dev.
+      HF_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      # Weights, outputs and logs live outside the image. Set AI_DATA to a host
+      # path in .env to keep them somewhere you choose; the default is a named
+      # volume, which avoids host permission problems entirely.
+      - ${AI_DATA:-ai-data}:/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  studio:
+    build:
+      context: .
+    image: openhiggsfield/studio:0.1.0
+    restart: unless-stopped
+    ports:
+      - "${STUDIO_PORT:-3000}:3000"
+    environment:
+      # How this container reaches the API: over the compose network.
+      LOCAL_AI_API_URL: http://local-ai:8000
+      # How the BROWSER reaches the same API. Change this if you open the
+      # studio from another machine — "localhost" would then mean the laptop.
+      NEXT_PUBLIC_LOCAL_AI_URL: ${PUBLIC_LOCAL_AI_URL:-http://localhost:8000}
+      # Cloud models only; local generation needs neither.
+      HF_API_BASE_URL: ${HF_API_BASE_URL:-}
+      OPEN_HIGGSFIELD_READ_WRITE_TOKEN: ${OPEN_HIGGSFIELD_READ_WRITE_TOKEN:-}
+    depends_on:
+      local-ai:
+        condition: service_healthy
+
+volumes:
+  ai-data:

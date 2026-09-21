@@ -11,4 +11,10 @@ dist
 tsconfig.tsbuildinfo
 
 .env*
+# The templates are documentation, not secrets, and the READMEs tell people to
+# copy them. These negations must sit after `.env*` — the last matching
+# pattern wins, and without them the examples ship in no clone but this one.
+!.env.example
+!.env.docker.example
+!*/.env.example
 .idea

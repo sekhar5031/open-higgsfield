@@ -15,7 +15,22 @@ hidden backend. `engines/image/diffusers_t2i.py` is the whole inference path:
 
 ---
 
-## Install
+## Docker
+
+The short route — see [../docs/RUNNING.md](../docs/RUNNING.md). Needs the
+NVIDIA Container Toolkit on the host.
+
+```bash
+cd ..                             # compose lives at the repository root
+cp .env.docker.example .env
+docker compose up -d --build
+docker compose exec local-ai python -m server.cli install flux1-schnell
+docker compose run --rm local-ai pytest      # verify the image
+```
+
+No weights are baked into the image; they download at runtime into a volume.
+
+## Install (bare metal)
 
 Python 3.10+. Torch is installed separately because the right build depends on
 your card — an RTX 5090 (Blackwell, `sm_120`) needs CUDA 12.8 or newer.

@@ -84,8 +84,14 @@ Next.js 16 App Router on Vercel · React 19 · plain CSS · Zustand · pnpm
   run log, gallery, viewer and reuse. Local and cloud runs can be in flight
   together and land in the same grid.
 
-See [docs/LOCAL_AI_ARCHITECTURE.md](docs/LOCAL_AI_ARCHITECTURE.md) for the
-architecture and [local-ai/README.md](local-ai/README.md) to set it up.
+```bash
+cp .env.docker.example .env
+docker compose up -d --build
+docker compose exec local-ai python -m server.cli install flux1-schnell
+```
+
+[docs/RUNNING.md](docs/RUNNING.md) is the full guide, Docker and bare metal.
+[docs/LOCAL_AI_ARCHITECTURE.md](docs/LOCAL_AI_ARCHITECTURE.md) is the design.
 
 ### State and errors
 
@@ -156,6 +162,7 @@ Local mode needs neither of the first two. See
 | `pnpm build` | Production build |
 | `pnpm start` | Serve the production build |
 | `pnpm brand` | Rebuild the icons and OG card in `public/` |
+| `docker compose up -d --build` | Studio + local inference platform, on your GPU |
 
 ---
 
@@ -176,7 +183,8 @@ src/
 local-ai/       the local inference platform (Python, FastAPI, Diffusers)
   server/       routes, services (registry, downloads, GPU, jobs, router)
   engines/      one adapter per model family, behind one interface
-docs/           LOCAL_AI_ARCHITECTURE.md — the assessment and the design
+docs/           RUNNING.md — setup guide; LOCAL_AI_ARCHITECTURE.md — the design
+docker-compose.yml · Dockerfile (studio) · local-ai/Dockerfile (platform)
 ```
 
 ---

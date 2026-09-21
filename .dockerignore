@@ -1,0 +1,14 @@
+node_modules
+.next
+out
+dist
+.git
+.github
+local-ai
+docs
+*.local
+.env
+.env.*
+!.env.example
+.vercel
+tsconfig.tsbuildinfo
