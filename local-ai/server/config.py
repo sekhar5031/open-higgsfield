@@ -7,13 +7,21 @@ user's data directory so a fresh clone runs before `/AI` exists.
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Mapping
 
+log = logging.getLogger(__name__)
+
 DEFAULT_ROOT = Path.home() / ".local" / "share" / "open-higgsfield-local-ai"
+
+#: Read at startup when it exists, so `cp .env.example .env` does what everyone
+#: expects it to. Under Docker the file is absent and compose supplies the
+#: environment instead.
+ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 
 #: Subdirectories of the model root, one per model type.
 MODEL_TYPES = ("image", "video", "audio", "3d", "llm")
@@ -51,6 +59,41 @@ class Settings:
             (self.model_dir / model_type).mkdir(parents=True, exist_ok=True)
 
 
+def read_env_file(path: Path) -> dict[str, str]:
+    """A deliberately small .env parser: `KEY=value`, `#` comments, an optional
+    `export ` prefix, and optional surrounding quotes.
+
+    Hand-rolled rather than pulled in as a dependency, and it strips `\r`
+    itself: a file edited on Windows, or checked out with CRLF endings, would
+    otherwise set AI_ROOT to a path with a carriage return on the end and fail
+    somewhere far away from the cause.
+    """
+    values: dict[str, str] = {}
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        log.warning("could not read %s: %s", path, exc)
+        return values
+
+    for number, raw in enumerate(text.splitlines(), start=1):
+        line = raw.strip().lstrip("\ufeff")
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].lstrip()
+        key, separator, value = line.partition("=")
+        if not separator:
+            log.warning("%s:%d ignored, no '=' in %r", path.name, number, raw.strip())
+            continue
+        key = key.strip()
+        value = value.strip().strip("\r")
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        if key:
+            values[key] = value
+    return values
+
+
 def _path(env: Mapping[str, str], key: str, fallback: Path) -> Path:
     raw = env.get(key, "").strip()
     return Path(raw).expanduser().resolve() if raw else fallback
@@ -73,8 +116,29 @@ def _bool(env: Mapping[str, str], key: str, fallback: bool) -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
-def load_settings(env: Mapping[str, str] | None = None) -> Settings:
+#: Distinguishes "caller said no file" from "caller said nothing".
+_UNSET = object()
+
+
+def load_settings(
+    env: Mapping[str, str] | None = None,
+    env_file: Path | None | object = _UNSET,
+) -> Settings:
+    """Resolve configuration. The real environment wins over the file, so a
+    container's compose settings are never overridden by a stray .env that
+    found its way into the image.
+
+    Passing an explicit `env` means "use exactly this" and reads no file —
+    otherwise a developer's own .env would leak into every test.
+    """
+    if env_file is _UNSET:
+        env_file = ENV_FILE if env is None else None
     env = os.environ if env is None else env
+    if isinstance(env_file, Path) and env_file.is_file():
+        from_file = read_env_file(env_file)
+        if from_file:
+            log.info("read %d settings from %s", len(from_file), env_file)
+        env = {**from_file, **{key: value for key, value in env.items() if value != ""}}
     root = _path(env, "AI_ROOT", DEFAULT_ROOT)
     origins = tuple(
         origin.strip()

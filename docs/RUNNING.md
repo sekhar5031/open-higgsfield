@@ -6,7 +6,12 @@ environment yourself.
 
 Neither route removes the host requirement: you need an NVIDIA driver new
 enough for your card. On Blackwell (RTX 5090, `sm_120`) that means a driver
-supporting CUDA 12.8 or newer.
+supporting CUDA 12.8 or newer. A driver reporting CUDA 13.x is fine — it runs
+the CUDA 12.8 wheels.
+
+**On Windows, read [Windows and Docker Desktop](#windows-and-docker-desktop)
+first.** The prerequisites differ from Linux and two of the defaults matter
+more there.
 
 ---
 
@@ -20,9 +25,11 @@ docker --version                 # 24+
 docker compose version           # v2+
 ```
 
-Install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
-if you have not, then prove Docker can see the GPU **before** building
-anything:
+On **Linux**, install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+and restart the daemon. On **Windows**, do not — Docker Desktop's WSL 2 engine
+brings its own; see [below](#windows-and-docker-desktop).
+
+Either way, prove Docker can see the GPU **before** building anything:
 
 ```bash
 docker run --rm --gpus all nvidia/cuda:12.8.1-base-ubuntu24.04 nvidia-smi
@@ -95,6 +102,52 @@ Open `http://localhost:3000` and jump to [Your first image](#your-first-image).
 
 ---
 
+## Windows and Docker Desktop
+
+Everything above applies, with four differences.
+
+**Use the WSL 2 engine.** Docker Desktop → Settings → General → *Use the WSL 2
+based engine*. GPU passthrough does not work in Windows-containers mode.
+There is no NVIDIA Container Toolkit to install: the WSL 2 engine ships it, and
+your Windows driver is what provides the GPU. Confirm with the `--gpus all`
+check above before building.
+
+**Leave `AI_DATA` alone.** The named-volume default puts weights on the WSL 2
+virtual disk. Pointing it at a Windows path (`AI_DATA=D:/AI`) bind-mounts
+across the Windows/Linux filesystem boundary, which is slow enough to be felt
+on every 34 GB model load. Keep them in the volume; use
+`docker compose cp` if you need a file out.
+
+**Give WSL 2 the disk.** The image is ~8–10 GB and the first model is ~34 GB,
+all inside the WSL 2 VHDX. Check Docker Desktop → Settings → Resources, and
+that the drive holding `%LOCALAPPDATA%\Docker\wsl` has ~60 GB free.
+
+**Git Bash rewrites arguments that look like paths.** Harmless for everything
+in this guide, but if you run a command whose argument starts with `/` —
+`docker compose exec local-ai /bin/bash` — MSYS turns it into a Windows path.
+Prefix it:
+
+```bash
+MSYS_NO_PATHCONV=1 docker compose exec local-ai /bin/bash
+```
+
+**Line endings.** The repository now pins LF via `.gitattributes`. If you
+cloned before that landed, Git for Windows will have written CRLF into your
+working tree; re-normalise once (this discards uncommitted edits):
+
+```bash
+git pull
+git rm --cached -r . && git reset --hard
+```
+
+**Watch your VRAM.** A desktop session holds real memory — browsers, overlays
+and Steam were using 1.3 GB on the machine this was written for. FLUX schnell
+wants ~24 GB plus headroom, so it fits in 32 GB comfortably, but opening a pile
+of GPU-accelerated windows mid-run is a way to meet the OOM path. `nvidia-smi`
+before a big run.
+
+---
+
 ## Bare metal
 
 ### 1. Backend
@@ -120,9 +173,10 @@ python -m server.cli install flux1-schnell
 uvicorn server.main:app --host 127.0.0.1 --port 8000
 ```
 
-`AI_ROOT` defaults to `~/.local/share/open-higgsfield-local-ai`; nothing is
-ever written inside the repository. If you point it at `/AI`, create it first
-and make it writable by you.
+`local-ai/.env` is read at startup, and real environment variables override
+it. `AI_ROOT` defaults to `~/.local/share/open-higgsfield-local-ai`; nothing is
+ever written inside the repository. If you point it at `/AI` (or `D:/AI` on
+Windows), create it first and make it writable by you.
 
 ### 3. Studio
 
@@ -214,6 +268,9 @@ without it, but the gallery's download path uses `fetch`, which does not.
 | "The GPU ran out of memory" | drop resolution to 768, `numImages` to 1, and check nothing else holds VRAM |
 | Model list empty (bare metal) | uvicorn started from the wrong directory — it must be `local-ai/` |
 | Install fails with 401/403 | a gated repository: accept its licence on the model card and set `HF_TOKEN` |
+| Windows: `--gpus all` not supported | Docker Desktop is not on the WSL 2 engine, or needs a restart after the driver update |
+| Windows: "no space left on device" mid-download | the WSL 2 virtual disk is full — Docker Desktop → Settings → Resources |
+| Windows: model loads are very slow | `AI_DATA` points at a Windows path; move it back to the named volume |
 
 Logs are at `$AI_ROOT/logs/local-ai.log` (`/data/logs` inside the container),
 and `http://localhost:8000/docs` is the live API browser.

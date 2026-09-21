@@ -1,0 +1,10 @@
+# LF in the working tree on every platform. Git for Windows defaults to
+# core.autocrlf=true, which would hand CRLF to files that are then read inside
+# Linux containers: a .env value picks up a trailing carriage return and fails
+# somewhere far from the cause.
+* text=auto eol=lf
+
+*.png binary
+*.ico binary
+*.webp binary
+*.jpg binary

@@ -51,3 +51,65 @@ def test_hf_token_accepts_either_spelling():
     assert load_settings({"HF_TOKEN": "hf_x"}).hf_token == "hf_x"
     assert load_settings({"HUGGING_FACE_HUB_TOKEN": "hf_y"}).hf_token == "hf_y"
     assert load_settings({}).hf_token is None
+
+
+def test_an_env_file_is_read_so_cp_env_example_actually_does_something(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("AI_ROOT=/srv/ai\nAI_PORT=9100\n", encoding="utf-8")
+    settings = load_settings({}, env_file=env_file)
+    assert settings.root == Path("/srv/ai")
+    assert settings.port == 9100
+
+
+def test_the_real_environment_wins_over_the_file(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("AI_PORT=9100\nAI_DTYPE=float16\n", encoding="utf-8")
+    settings = load_settings({"AI_PORT": "8123"}, env_file=env_file)
+    # Compose's environment must not be overridden by a stray file in the image.
+    assert settings.port == 8123
+    assert settings.dtype == "float16"
+
+
+def test_an_empty_environment_variable_does_not_mask_the_file(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("HF_TOKEN=hf_from_file\n", encoding="utf-8")
+    # compose writes HF_TOKEN: "" for an unset variable; that is absence.
+    assert load_settings({"HF_TOKEN": ""}, env_file=env_file).hf_token == "hf_from_file"
+
+
+def test_a_file_written_on_windows_does_not_smuggle_a_carriage_return(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_bytes(b"AI_ROOT=/srv/ai\r\nAI_DTYPE=float32\r\n")
+    settings = load_settings({}, env_file=env_file)
+    assert settings.root == Path("/srv/ai")
+    assert settings.dtype == "float32"
+    assert "\r" not in settings.dtype
+
+
+def test_the_parser_handles_comments_quotes_blank_lines_and_export(tmp_path):
+    from server.config import read_env_file
+
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        '\n# a comment\nexport AI_DEVICE=cuda:1\nAI_CORS_ORIGINS="http://a,http://b"\n'
+        "  AI_DTYPE = bfloat16  \nnonsense-line\n",
+        encoding="utf-8",
+    )
+    values = read_env_file(env_file)
+    assert values["AI_DEVICE"] == "cuda:1"
+    assert values["AI_CORS_ORIGINS"] == "http://a,http://b"
+    assert values["AI_DTYPE"] == "bfloat16"
+    assert "nonsense-line" not in values
+
+
+def test_a_missing_env_file_is_not_an_error(tmp_path):
+    assert load_settings({}, env_file=tmp_path / "absent").port == 8000
+
+
+def test_an_explicit_environment_reads_no_file_so_tests_stay_hermetic(tmp_path, monkeypatch):
+    import server.config as config
+
+    stray = tmp_path / ".env"
+    stray.write_text("AI_PORT=9999\n", encoding="utf-8")
+    monkeypatch.setattr(config, "ENV_FILE", stray)
+    assert config.load_settings({}).port == 8000
