@@ -3,22 +3,34 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
-import { MODELS } from "@/generation/catalog";
-import type { ModelEntry, Surface } from "@/generation/catalog";
+import { modelsFor } from "@/generation/catalog";
+import type { ModelEntry, Provider, Surface } from "@/generation/catalog";
 
 import { swatchFor } from "./artwork";
 import { SURFACE_LABELS, describeModel } from "./data";
 import { CheckIcon, CloseIcon, SearchIcon } from "./icons";
 import { ModelIcon, modelIconSrc } from "./model-icon";
 
+/* Two backends, named for what they cost the visitor rather than for how they
+   are implemented: one runs on someone else's GPU and bills a key, the other
+   runs on the machine this page is open on. */
+const PROVIDERS: ReadonlyArray<{ id: Provider; label: string; hint: string }> = [
+  { id: "remote", label: "Cloud", hint: "Runs on the hosted API with your platform key" },
+  { id: "local", label: "Local", hint: "Runs on this machine's GPU — no key, no cloud" },
+];
+
 export function ModelPicker({
   selectedId,
   surface,
+  provider,
+  onProvider,
   onPick,
   onClose,
 }: {
   selectedId: string;
   surface: Surface;
+  provider: Provider;
+  onProvider: (next: Provider) => void;
   onPick: (model: ModelEntry) => void;
   onClose: () => void;
 }) {
@@ -31,7 +43,10 @@ export function ModelPicker({
   }, []);
 
   const query = search.trim().toLowerCase();
-  const catalog = MODELS.filter((model) => model.surface === surface);
+  /* Only the active backend's models are listed. The hosted catalog is a list
+     of endpoints, not of weights that can be downloaded, so the two are never
+     shown as one shelf. */
+  const catalog = modelsFor(provider, surface);
   /* The description is searchable too: "references", "4K" and "audio" are how
      a visitor asks for a model whose name they do not remember. */
   const models = catalog.filter(
@@ -48,6 +63,28 @@ export function ModelPicker({
          so its height is the same before and after every keystroke. */
       style={{ "--ohf-picker-rows": catalog.length } as CSSProperties}
     >
+      {/* Where the work happens comes first: it decides what the list can
+          even contain, and whether a key is needed at all. */}
+      <div className="ohf-picker-providers" role="radiogroup" aria-label="Where models run">
+        {PROVIDERS.map((entry) => (
+          <button
+            key={entry.id}
+            type="button"
+            role="radio"
+            aria-checked={entry.id === provider}
+            className="ohf-picker-provider"
+            title={entry.hint}
+            onClick={() => {
+              if (entry.id === provider) return;
+              setSearch("");
+              onProvider(entry.id);
+            }}
+          >
+            {entry.label}
+          </button>
+        ))}
+      </div>
+
       {/* Search leads: the catalog is long enough that typing beats scanning. */}
       <div className="ohf-picker-head">
         <span className="ohf-picker-search-ic" aria-hidden>
@@ -86,14 +123,27 @@ export function ModelPicker({
             : `${SURFACE_LABELS[surface]} models`}
         </div>
 
-        {models.length === 0 && (
+        {catalog.length === 0 && (
+          <div className="ohf-picker-empty">
+            <span className="ohf-picker-empty-title">
+              No local {SURFACE_LABELS[surface].toLowerCase()} models yet
+            </span>
+            <span className="ohf-picker-empty-hint">
+              Local inference ships image models first. Video, 3D and audio land
+              on the same engine contract.
+            </span>
+          </div>
+        )}
+
+        {catalog.length > 0 && models.length === 0 && (
           <div className="ohf-picker-empty">
             <span className="ohf-picker-empty-ic">
               <SearchIcon size={15} />
             </span>
             <span className="ohf-picker-empty-title">No model matches “{search.trim()}”</span>
             <span className="ohf-picker-empty-hint">
-              The {SURFACE_LABELS[surface].toLowerCase()} catalog holds {catalog.length} models.
+              The {provider === "local" ? "local" : SURFACE_LABELS[surface].toLowerCase()} catalog
+              holds {catalog.length} models.
             </span>
             <button
               type="button"
@@ -132,7 +182,9 @@ export function ModelPicker({
               )}
               <span className="ohf-model-row-text">
                 <span className="ohf-model-row-name">{model.label}</span>
-                <span className="ohf-model-row-desc">{describeModel(model)}</span>
+                {/* Weights have a licence and a footprint; an endpoint does
+                    not. The note is what makes an informed pick possible. */}
+                <span className="ohf-model-row-desc">{model.note ?? describeModel(model)}</span>
               </span>
               <span className="ohf-model-row-check" aria-hidden>
                 {selected && <CheckIcon />}

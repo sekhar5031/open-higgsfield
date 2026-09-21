@@ -14,6 +14,11 @@ export type GalleryView = Surface | "assets" | "favorites";
 /** Scopes that span both surfaces, so switching to them leaves the model alone. */
 export const CROSS_VIEWS = new Set<GalleryView>(["assets", "favorites"]);
 
+/** Narrows a scope to the surface it selects, or reports that it spans both. */
+export function isSurfaceView(view: GalleryView): view is Surface {
+  return !CROSS_VIEWS.has(view);
+}
+
 export const VIEWS: readonly GalleryView[] = ["image", "video", "assets", "favorites"];
 
 export const VIEW_LABELS: Record<GalleryView, string> = {

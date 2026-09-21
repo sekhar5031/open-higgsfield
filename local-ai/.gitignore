@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.env
+# Weights and generated media live outside the repo; this is belt and braces.
+models/
+outputs/
+assets/

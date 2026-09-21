@@ -18,6 +18,7 @@ import {
 } from "./kling-3";
 import { klingO1 } from "./kling-o1";
 import { klingO3 } from "./kling-o3";
+import { LOCAL_MODELS } from "./local";
 import { ltx25Fast } from "./ltx-2.5-fast";
 import { ltx25Pro } from "./ltx-2.5-pro";
 import { minimaxH3 } from "./minimax-h3";
@@ -29,14 +30,16 @@ import { recraft41 } from "./recraft-4.1";
 import { seedance2, seedance2Fast, seedance2Mini } from "./seedance-2";
 import { seedance25, seedance25Edit, seedance25Extend } from "./seedance-2.5";
 import { soul2, soulCinema } from "./soul";
-import type { ModelEntry } from "./types";
+import type { ModelEntry, Provider, Surface } from "./types";
 import { wan26 } from "./wan-2.6";
 import { wan27 } from "./wan-2.7";
 import { wan3 } from "./wan-3";
 import { wan3Prime } from "./wan-3-prime";
 import { zImageTurbo } from "./z-image-turbo";
 
-export const MODELS: readonly ModelEntry[] = [
+/** Hosted models. The local ones are appended below rather than mixed in, so
+    the two lists stay visibly separate. */
+export const REMOTE_MODELS: readonly ModelEntry[] = [
   soul2,
   soulCinema,
   seedance25,
@@ -77,11 +80,32 @@ export const MODELS: readonly ModelEntry[] = [
   dop,
 ];
 
+export { LOCAL_MODELS };
+
+export const MODELS: readonly ModelEntry[] = [...REMOTE_MODELS, ...LOCAL_MODELS];
+
+export function providerOf(model: ModelEntry): Provider {
+  return model.provider ?? "remote";
+}
+
+/** What the picker lists: one provider's models for one surface. */
+export function modelsFor(provider: Provider, surface: Surface): ModelEntry[] {
+  return MODELS.filter((entry) => providerOf(entry) === provider && entry.surface === surface);
+}
+
 export function getModel(id: string): ModelEntry {
   const model = MODELS.find((entry) => entry.id === id);
   if (!model) throw new Error(`Unknown model: ${id}`);
   return model;
 }
 
-export type { GenerationPlane, MediaItem, MediaRole, ModelEntry, PlatformPaths, Surface } from "./types";
+export type {
+  GenerationPlane,
+  MediaItem,
+  MediaRole,
+  ModelEntry,
+  PlatformPaths,
+  Provider,
+  Surface,
+} from "./types";
 export { parseSettings };

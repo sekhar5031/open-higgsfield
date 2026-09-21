@@ -2134,7 +2134,7 @@
    frame; the frame holds still. */
 .ohf-popover--picker {
   width: min(560px, 100%);
-  height: min(60vh, 520px, calc(95px + var(--ohf-picker-rows, 99) * 56px));
+  height: min(60vh, 520px, calc(144px + var(--ohf-picker-rows, 99) * 56px));
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2456,6 +2456,41 @@
 
 /* Search leads the panel; the catalog is long enough that typing beats
    scanning, so the field is the header rather than a control inside it. */
+/* Where the work happens. A two-way segment rather than a toggle: neither
+   backend is the "off" state of the other, and the label has to name what is
+   selected without a legend. Accent marks selection, as everywhere else. */
+.ohf-picker-providers {
+  display: flex;
+  gap: 2px;
+  padding: 10px 12px 10px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.ohf-picker-provider {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 7px;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--tx3);
+  background: transparent;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+.ohf-picker-provider:hover:not([aria-checked="true"]) {
+  background: var(--s3);
+  color: var(--tx2);
+}
+.ohf-picker-provider[aria-checked="true"] {
+  background: var(--accent-14);
+  color: var(--accent);
+}
+.ohf-picker-provider:focus-visible {
+  outline: 2px solid var(--accent-32);
+  outline-offset: 1px;
+}
+
 .ohf-picker-head {
   display: flex;
   align-items: center;

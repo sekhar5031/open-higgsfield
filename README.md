@@ -18,6 +18,7 @@ platform key (`id:secret`) to start generating. The studio itself is free.
 - **Free & open-source** — no studio subscription, no vendor lock-in
 - **Self-hosted** — clone it, run it, change it
 - **Your key** — generate with your own platform key
+- **Or your own GPU** — Local mode runs open-weight models on your machine, no key and no cloud
 - **38 models** — 8 image, 30 video, one catalog, one composer
 
 ---
@@ -68,6 +69,24 @@ Next.js 16 App Router on Vercel · React 19 · plain CSS · Zustand · pnpm
   hairline, in the strip the composer already reserves.
 - **Empty states** that hand you a starter prompt instead of a blank grid.
 
+### Local mode
+
+- **Your GPU, your weights.** Pick **Local** in the model picker and generation
+  runs against [`local-ai/`](local-ai/), a FastAPI service that loads
+  open-weight models with Diffusers and executes them on your own card. No
+  platform key, no cloud, no ComfyUI.
+- **Cloud and Local are separate catalogs.** A hosted model is an endpoint; a
+  local one is downloadable weights with a licence and a footprint. The picker
+  never mixes them, and each local row states its licence and disk cost.
+- **The backend is a property of the model, not a mode.** Picking a local model
+  cannot reach a cloud API — the route is decided by the entry itself.
+- **Everything else is the same studio.** The same composer, batch control,
+  run log, gallery, viewer and reuse. Local and cloud runs can be in flight
+  together and land in the same grid.
+
+See [docs/LOCAL_AI_ARCHITECTURE.md](docs/LOCAL_AI_ARCHITECTURE.md) for the
+architecture and [local-ai/README.md](local-ai/README.md) to set it up.
+
 ### State and errors
 
 - **History persists** in IndexedDB in this browser (60 records). Favorites are
@@ -88,9 +107,15 @@ Each generate is one object: `{ model, prompt, media, settings }`.
 - **The UI builds that object** and hands it to a server action. The action
   resolves it against the catalog and maps it to the generation API's own
   fields (`image_urls`, `aspect_ratio`, …).
-- **Server actions are the only caller.** The browser never talks to the
-  generation API. Submit is `POST /{model}`; status is
-  `GET /requests/{id}/status`. Auth is `Authorization: Key <api_key>`.
+- **Server actions are the only caller.** The browser never talks to a
+  generation API. For cloud models, submit is `POST /{model}` and status is
+  `GET /requests/{id}/status`, authed with `Authorization: Key <api_key>`.
+- **Two providers, one seam.** `src/generation/providers/` implements
+  `{ submit, status }` twice — `remote.ts` for the hosted API, `local.ts` for
+  the Local AI service. Everything above it (the poller, the run log, the
+  gallery, the viewer) consumes only `QueuedGeneration` and `GenerationStatus`
+  and cannot tell them apart. Local job ids are namespaced `local:`, so one
+  batched poll answers a mixed set of runs.
 - **The catalog is the source of truth** (`src/generation/catalog/`). A new entry
   appears in the picker, brings its own settings rail and media roles, and needs
   no studio changes.
@@ -113,9 +138,15 @@ Open the studio, press **Add key**, and paste your platform key as `id:secret`.
 ### Environment
 
 ```bash
-HF_API_BASE_URL=                      # generation API origin, server only
+HF_API_BASE_URL=                      # cloud generation API origin, server only
 OPEN_HIGGSFIELD_READ_WRITE_TOKEN=     # Vercel Blob read-write token
+
+LOCAL_AI_API_URL=http://127.0.0.1:8000       # Local AI service, as this server sees it
+NEXT_PUBLIC_LOCAL_AI_URL=http://127.0.0.1:8000  # …as the browser sees it
 ```
+
+Local mode needs neither of the first two. See
+[local-ai/README.md](local-ai/README.md).
 
 ### Commands
 
@@ -135,10 +166,17 @@ src/
   app/          /  is the full-viewport studio and the only page
                 /api/blob issues upload tokens
                 base.css owns the document canvas
-  generation/   generate requests, server actions, API mapping, catalog, stores
+  generation/   generate requests, server actions, catalog, stores
+    providers/  the backend seam: remote.ts (hosted API), local.ts (your GPU)
+    catalog/    38 hosted entries + local.ts, the locally runnable ones
   openhiggsfield/
                 the studio surface: composer, gallery, viewer, model picker,
                 settings, asset picker, selection bar — and openhiggsfield.css
+
+local-ai/       the local inference platform (Python, FastAPI, Diffusers)
+  server/       routes, services (registry, downloads, GPU, jobs, router)
+  engines/      one adapter per model family, behind one interface
+docs/           LOCAL_AI_ARCHITECTURE.md — the assessment and the design
 ```
 
 ---

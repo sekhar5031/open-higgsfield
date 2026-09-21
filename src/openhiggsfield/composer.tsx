@@ -77,6 +77,8 @@ export function Composer({
   onGenerate: () => void;
 }) {
   const setModel = useActive((state) => state.setModel);
+  const provider = useActive((state) => state.provider);
+  const setProvider = useActive((state) => state.setProvider);
   const batch = useActive((state) => state.batch);
   const setBatch = useActive((state) => state.setBatch);
   const imagePrompt = useImagePrompt();
@@ -263,6 +265,8 @@ export function Composer({
           <ModelPicker
             selectedId={model.id}
             surface={surface}
+            provider={provider}
+            onProvider={setProvider}
             onPick={(next) => {
               setModel(next.id);
               setOverlay(null);

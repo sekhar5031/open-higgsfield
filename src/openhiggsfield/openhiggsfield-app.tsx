@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { hasPlatformCredentials, submitGeneration } from "@/generation/actions";
 import { MissingCredentialsError } from "@/generation/credentials";
-import { MODELS, getModel } from "@/generation/catalog";
+import { MODELS, getModel, modelsFor, providerOf } from "@/generation/catalog";
 import type { Surface } from "@/generation/catalog";
 import { assemblePlane } from "@/generation/plane";
 import type { GenerationStatus } from "@/generation/platform";
@@ -21,6 +21,7 @@ import {
   CROSS_VIEWS,
   countSetting,
   durationBadge,
+  isSurfaceView,
   metaOf,
   ratioToCss,
   type GalleryView,
@@ -154,6 +155,10 @@ function describeError(caught: unknown): string {
   if (caught instanceof MissingCredentialsError || message.includes("Missing platform key")) {
     return "Add your platform key to generate.";
   }
+  /* The local service already says what is wrong and what to do about it;
+     wrapping that in advice about a key the run never needed would only
+     point somewhere unhelpful. */
+  if (message.includes("Local AI service")) return message;
   return `Generation failed — ${message}. Try again; if it repeats, check the key in the sidebar.`;
 }
 
@@ -220,10 +225,15 @@ export function OpenHiggsfieldApp({ fontClassName = "" }: { fontClassName?: stri
     if (historyLoaded) void saveHistory(history);
   }, [historyLoaded, history]);
 
+  /* The key belongs to the hosted backend. Someone who arrives on a local
+     model is not asked for one — nothing in their generation path would use
+     it. Read on mount only; the modal is opened by Generate otherwise. */
   useEffect(() => {
     void hasPlatformCredentials().then((ready) => {
       setKeyConfigured(ready);
-      if (!ready) setKeysOpen(true);
+      if (!ready && providerOf(getModel(useActive.getState().model)) === "remote") {
+        setKeysOpen(true);
+      }
     });
   }, []);
 
@@ -313,8 +323,12 @@ export function OpenHiggsfieldApp({ fontClassName = "" }: { fontClassName?: stri
     (next: GalleryView) => {
       setView(next);
       galleryRef.current?.scrollTo({ top: 0 });
-      if (CROSS_VIEWS.has(next) || next === surface) return;
-      const first = MODELS.find((entry) => entry.surface === next);
+      if (!isSurfaceView(next) || next === surface) return;
+      /* Stay on the backend the visitor chose. Only if it has nothing for this
+         surface at all — local has no video models yet — does the scope pull
+         them across to one that does. */
+      const provider = useActive.getState().provider;
+      const first = modelsFor(provider, next)[0] ?? MODELS.find((entry) => entry.surface === next);
       if (first) setModel(first.id);
     },
     [setModel, surface],
@@ -324,15 +338,18 @@ export function OpenHiggsfieldApp({ fontClassName = "" }: { fontClassName?: stri
      its own skeletons and keeps its own watch, so the composer is free the
      moment the tiles appear and any number of runs can be in flight. */
   const generate = useCallback(async () => {
-    if (!keyConfigured) {
-      setKeysOpen(true);
-      setError("Add your platform key to generate.");
-      return;
-    }
     const plane = assemblePlane();
     if (!plane.prompt.text.trim()) return;
 
     const entry = getModel(plane.model);
+    /* A local model runs on this machine and needs no credential; gating it
+       behind the hosted key would make the offline path depend on the cloud
+       one. */
+    if (providerOf(entry) === "remote" && !keyConfigured) {
+      setKeysOpen(true);
+      setError("Add your platform key to generate.");
+      return;
+    }
     const ratio = ratioToCss(
       plane.settings.aspectRatio,
       entry.surface === "image" ? "4 / 3" : "16 / 9",

@@ -2,8 +2,8 @@
 
 import { cookies } from "next/headers";
 
-import { getModel, parseSettings } from "./catalog";
-import type { GenerationPlane } from "./catalog/types";
+import { getModel, parseSettings, providerOf } from "./catalog";
+import type { GenerationPlane, ModelEntry } from "./catalog/types";
 import {
   MissingCredentialsError,
   PLATFORM_KEY_COOKIE,
@@ -12,9 +12,10 @@ import {
   encodeCredentials,
   parseCredentialInput,
 } from "./credentials";
-import { createPlatformClient } from "./platform";
 import type { StatusResult } from "./platform";
-import { toPlatform } from "./to-platform";
+import { createLocalProvider, isLocalRequestId } from "./providers/local";
+import { createRemoteProvider } from "./providers/remote";
+import type { GenerationProvider } from "./providers/types";
 
 export async function savePlatformCredentials(data: unknown) {
   const { apiKey } = parseCredentialInput(data);
@@ -37,26 +38,44 @@ export async function submitGeneration(plane: GenerationPlane) {
     ...plane,
     settings: parseSettings(model, plane.settings),
   };
-  const { path, body } = toPlatform(parsed);
-  return createPlatformClient(await readCredentials()).submit(path, body);
+  return (await providerFor(model)).submit(parsed);
 }
 
 /** Every request in flight, answered in one round trip. Next dispatches server
     actions one at a time per client, so a poll per run would queue ahead of the
     next submit — the fan-out belongs on this side of the call, where it is
-    genuinely parallel. */
+    genuinely parallel.
+
+    A local run and a hosted one can be in flight together, so the ids are
+    split by namespace first. The hosted client — and the key it needs — is
+    built only if some id actually belongs to it: generating locally must not
+    require a platform key. */
 export async function getGenerationStatuses(data: unknown): Promise<StatusResult[]> {
   const requestIds = parseRequestIds(data);
-  const client = createPlatformClient(await readCredentials());
+  const local = requestIds.filter(isLocalRequestId);
+  const remote = requestIds.filter((requestId) => !isLocalRequestId(requestId));
+
+  const localProvider = local.length > 0 ? createLocalProvider() : null;
+  const remoteProvider = remote.length > 0 ? createRemoteProvider(await readCredentials()) : null;
+
   return Promise.all(
     requestIds.map(async (requestId): Promise<StatusResult> => {
+      const provider = isLocalRequestId(requestId) ? localProvider : remoteProvider;
       try {
-        return { requestId, status: await client.status(requestId) };
+        if (!provider) throw new Error("No provider for this request");
+        return { requestId, status: await provider.status(requestId) };
       } catch (caught) {
         return { requestId, error: caught instanceof Error ? caught.message : String(caught) };
       }
     }),
   );
+}
+
+/** The model decides the backend. Nothing else does — there is no mode flag a
+    local run could be routed around. */
+async function providerFor(model: ModelEntry): Promise<GenerationProvider> {
+  if (providerOf(model) === "local") return createLocalProvider();
+  return createRemoteProvider(await readCredentials());
 }
 
 async function readStoredCredentials() {
