@@ -118,9 +118,41 @@ across the Windows/Linux filesystem boundary, which is slow enough to be felt
 on every 34 GB model load. Keep them in the volume; use
 `docker compose cp` if you need a file out.
 
+**Give WSL 2 the RAM.** This is the one most likely to catch you, and it is
+not obvious. FLUX.1 schnell is ~34 GB of bf16 weights, which does not fit in
+32 GB of VRAM, so the engine runs it with model CPU offload: the full pipeline
+stays resident in *host* memory and each component is paged onto the card as
+it executes. WSL 2 defaults to **half** your system RAM, so even a 64 GB
+machine hands the container 32 GB — just under what the pipeline needs, and
+the symptom is savage paging or a kill rather than a clear error.
+
+Create `C:\Users\<you>\.wslconfig`:
+
+```ini
+[wsl2]
+memory=48GB      # >= 40GB for FLUX schnell; leave Windows 12-16GB
+swap=16GB        # headroom during the load, not somewhere to run from
+```
+
+Then apply it and restart Docker Desktop:
+
+```bash
+wsl --shutdown
+```
+
+With 32 GB of system RAM you cannot give WSL 40 GB. FLUX schnell will still
+load, but it will page against your swap file and be slow — a smaller or
+quantised image model is the better fit until one is in the registry.
+
 **Give WSL 2 the disk.** The image is ~8–10 GB and the first model is ~34 GB,
-all inside the WSL 2 VHDX. Check Docker Desktop → Settings → Resources, and
-that the drive holding `%LOCALAPPDATA%\Docker\wsl` has ~60 GB free.
+all inside the WSL 2 VHDX, which grows on demand. The WSL 2 backend has no
+disk slider — the real limit is free space on whatever drive holds it.
+Docker Desktop → Settings → Resources shows the location (typically
+`%LOCALAPPDATA%\Docker\wsl`); make sure that drive has ~60 GB free, or use
+the same panel to move the disk image to a roomier one.
+
+*Resource Saver* is fine to leave on: it only idles the VM when no containers
+are running, and these run with `restart: unless-stopped`.
 
 **Git Bash rewrites arguments that look like paths.** Harmless for everything
 in this guide, but if you run a command whose argument starts with `/` —
@@ -271,6 +303,7 @@ without it, but the gallery's download path uses `fetch`, which does not.
 | Windows: `--gpus all` not supported | Docker Desktop is not on the WSL 2 engine, or needs a restart after the driver update |
 | Windows: "no space left on device" mid-download | the WSL 2 virtual disk is full — Docker Desktop → Settings → Resources |
 | Windows: model loads are very slow | `AI_DATA` points at a Windows path; move it back to the named volume |
+| Windows: the container dies during model load, or the host crawls | WSL 2 has too little RAM for the offloaded pipeline — raise `memory=` in `.wslconfig`, then `wsl --shutdown` |
 
 Logs are at `$AI_ROOT/logs/local-ai.log` (`/data/logs` inside the container),
 and `http://localhost:8000/docs` is the live API browser.
