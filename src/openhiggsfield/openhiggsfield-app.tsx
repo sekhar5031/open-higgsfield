@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { hasPlatformCredentials, submitGeneration } from "@/generation/actions";
 import { MissingCredentialsError } from "@/generation/credentials";
 import { MODELS, getModel, modelsFor, providerOf } from "@/generation/catalog";
-import type { Surface } from "@/generation/catalog";
+import type { Provider, Surface } from "@/generation/catalog";
 import { assemblePlane } from "@/generation/plane";
 import type { GenerationStatus } from "@/generation/platform";
 import { POLL_DEADLINE_MS, stopWatching, watchRequest } from "@/generation/poll";
@@ -150,16 +150,28 @@ function failureText(status: GenerationStatus): string {
   return "the platform reported a failure";
 }
 
-function describeError(caught: unknown): string {
+/* A local run has no key and never touches one, so the hosted advice would
+   send the visitor to the wrong place. The service's own messages already say
+   what to do — "install it first", "start it with …" — and are passed through
+   whole. Provider is taken from the model rather than sniffed out of the
+   message text. */
+function describeError(caught: unknown, provider: Provider = "remote"): string {
   const message = caught instanceof Error ? caught.message : String(caught);
   if (caught instanceof MissingCredentialsError || message.includes("Missing platform key")) {
     return "Add your platform key to generate.";
   }
-  /* The local service already says what is wrong and what to do about it;
-     wrapping that in advice about a key the run never needed would only
-     point somewhere unhelpful. */
-  if (message.includes("Local AI service")) return message;
+  if (provider === "local") return `Generation failed — ${message}`;
   return `Generation failed — ${message}. Try again; if it repeats, check the key in the sidebar.`;
+}
+
+/** The backend a recorded run came from, for a model that may since have left
+    the catalog. */
+function providerOfRun(modelId: string): Provider {
+  try {
+    return providerOf(getModel(modelId));
+  } catch {
+    return "remote";
+  }
 }
 
 export function OpenHiggsfieldApp({ fontClassName = "" }: { fontClassName?: string }) {
@@ -283,7 +295,7 @@ export function OpenHiggsfieldApp({ fontClassName = "" }: { fontClassName?: stri
         }
       } catch (caught) {
         if (!alive.current) return;
-        const message = describeError(caught);
+        const message = describeError(caught, providerOfRun(draft.modelId));
         if (message.includes("platform key")) setKeysOpen(true);
         setHistory((prev) => {
           const next = replaceRequest(prev, requestId, failedRows(requestId, expected, draft, message));
@@ -396,7 +408,11 @@ export function OpenHiggsfieldApp({ fontClassName = "" }: { fontClassName?: stri
 
     const runOne = async (slot: { skeletons: string[] }) => {
       try {
-        const queued = await submitGeneration(plane);
+        const result = await submitGeneration(plane);
+        /* Rethrown here, on the client, where the message survives: the same
+           catch below then renders it. */
+        if (!result.ok) throw new Error(result.error);
+        const queued = result.value;
         setHistory((prev) => {
           const next = [...runningRows(queued.requestId, slot.skeletons.length, draft), ...prev];
           void saveHistory(next);
@@ -406,7 +422,7 @@ export function OpenHiggsfieldApp({ fontClassName = "" }: { fontClassName?: stri
         await resume(queued.requestId, draft, slot.skeletons.length);
       } catch (caught) {
         if (!alive.current) return;
-        const message = describeError(caught);
+        const message = describeError(caught, providerOf(entry));
         if (message.includes("platform key")) setKeysOpen(true);
         setError((prev) => prev ?? message);
       } finally {

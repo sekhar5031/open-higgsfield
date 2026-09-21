@@ -12,15 +12,33 @@ import {
   encodeCredentials,
   parseCredentialInput,
 } from "./credentials";
-import type { StatusResult } from "./platform";
+import type { QueuedGeneration, StatusResult } from "./platform";
 import { createLocalProvider, isLocalRequestId } from "./providers/local";
 import { createRemoteProvider } from "./providers/remote";
 import type { GenerationProvider } from "./providers/types";
 
-export async function savePlatformCredentials(data: unknown) {
-  const { apiKey } = parseCredentialInput(data);
-  const jar = await cookies();
-  jar.set(PLATFORM_KEY_COOKIE, encodeCredentials(apiKey), PLATFORM_KEY_COOKIE_OPTIONS);
+/* Every failure below crosses back as a value, never as a throw.
+
+   Next redacts the message of an error thrown out of a server action in a
+   production build — the client receives a digest and a generic sentence. All
+   the work these messages do ("install it first", "the Local AI service is not
+   answering at …, start it with …") is therefore lost in exactly the build
+   people run, and visible only in `pnpm dev`. Returning them keeps the words. */
+export type ActionResult<T> = { ok: true; value: T } | { ok: false; error: string };
+
+function failed(caught: unknown): { ok: false; error: string } {
+  return { ok: false, error: caught instanceof Error ? caught.message : String(caught) };
+}
+
+export async function savePlatformCredentials(data: unknown): Promise<ActionResult<null>> {
+  try {
+    const { apiKey } = parseCredentialInput(data);
+    const jar = await cookies();
+    jar.set(PLATFORM_KEY_COOKIE, encodeCredentials(apiKey), PLATFORM_KEY_COOKIE_OPTIONS);
+    return { ok: true, value: null };
+  } catch (caught) {
+    return failed(caught);
+  }
 }
 
 export async function clearPlatformCredentials() {
@@ -32,13 +50,19 @@ export async function hasPlatformCredentials() {
   return (await readStoredCredentials()) !== null;
 }
 
-export async function submitGeneration(plane: GenerationPlane) {
-  const model = getModel(plane.model);
-  const parsed: GenerationPlane = {
-    ...plane,
-    settings: parseSettings(model, plane.settings),
-  };
-  return (await providerFor(model)).submit(parsed);
+export async function submitGeneration(
+  plane: GenerationPlane,
+): Promise<ActionResult<QueuedGeneration>> {
+  try {
+    const model = getModel(plane.model);
+    const parsed: GenerationPlane = {
+      ...plane,
+      settings: parseSettings(model, plane.settings),
+    };
+    return { ok: true, value: await (await providerFor(model)).submit(parsed) };
+  } catch (caught) {
+    return failed(caught);
+  }
 }
 
 /** Every request in flight, answered in one round trip. Next dispatches server
@@ -56,13 +80,24 @@ export async function getGenerationStatuses(data: unknown): Promise<StatusResult
   const remote = requestIds.filter((requestId) => !isLocalRequestId(requestId));
 
   const localProvider = local.length > 0 ? createLocalProvider() : null;
-  const remoteProvider = remote.length > 0 ? createRemoteProvider(await readCredentials()) : null;
+  /* A missing key must fail only the hosted requests. Reading it outside the
+     per-request boundary would throw the whole round — and take every local
+     run's poll down with it. */
+  let remoteProvider: GenerationProvider | null = null;
+  let remoteError: string | null = null;
+  if (remote.length > 0) {
+    try {
+      remoteProvider = createRemoteProvider(await readCredentials());
+    } catch (caught) {
+      remoteError = caught instanceof Error ? caught.message : String(caught);
+    }
+  }
 
   return Promise.all(
     requestIds.map(async (requestId): Promise<StatusResult> => {
       const provider = isLocalRequestId(requestId) ? localProvider : remoteProvider;
       try {
-        if (!provider) throw new Error("No provider for this request");
+        if (!provider) throw new Error(remoteError ?? "No provider for this request");
         return { requestId, status: await provider.status(requestId) };
       } catch (caught) {
         return { requestId, error: caught instanceof Error ? caught.message : String(caught) };

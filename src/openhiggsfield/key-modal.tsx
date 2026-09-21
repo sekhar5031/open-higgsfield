@@ -33,7 +33,11 @@ export function KeyModal({
     setBusy(true);
     setError(null);
     try {
-      await savePlatformCredentials({ api_key: apiKey });
+      const result = await savePlatformCredentials({ api_key: apiKey });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
       onSaved();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not save the key");
