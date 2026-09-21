@@ -76,12 +76,14 @@ class ModelSpec(BaseModel):
     allow_patterns: tuple[str, ...] | None = None
     #: Formats a repository may also ship that this engine never reads. Skipping
     #: them halves the download for repositories that publish both.
-    ignore_patterns: tuple[str, ...] = ("*.bin", "*.pt", "*.pth", "*.msgpack", "*.onnx", "*.onnx_data")
+    ignore_patterns: tuple[str, ...] = (
+        "*.bin", "*.pt", "*.pth", "*.ckpt", "*.msgpack", "*.onnx", "*.onnx_data",
+    )
     engine: str
     #: Diffusers pipeline class, when the engine needs a specific one.
     pipeline: str | None = None
     #: Extra kwargs for `from_pretrained`, straight from the model card.
-    load_kwargs: dict[str, float | int | str | bool] = Field(default_factory=dict)
+    load_kwargs: dict[str, float | int | str | bool | None] = Field(default_factory=dict)
     #: Extra kwargs for the pipeline call — `max_sequence_length` and friends,
     #: which differ per release. Data, so a new model needs no code branch.
     call_kwargs: dict[str, float | int | str | bool] = Field(default_factory=dict)

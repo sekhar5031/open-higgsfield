@@ -4,7 +4,8 @@ Weights have to be on disk before the studio can generate, and asking someone
 to curl a POST for that is poor hospitality.
 
     python -m server.cli models
-    python -m server.cli install flux1-schnell
+    python -m server.cli verify sd15
+    python -m server.cli install sd15
     python -m server.cli remove flux1-schnell
     python -m server.cli gpu
 """
@@ -30,6 +31,34 @@ def _models(app: Container) -> int:
         size = f"{status.disk_bytes / GB:.1f} GB" if status.disk_bytes else "-"
         print(f"{spec.id:<16} {spec.type:<6} {status.install_state:<14} {size:>9}  {spec.license}")
     return 0
+
+
+def _verify(app: Container, model_id: str | None) -> int:
+    """Check registry rows against the live repositories. Downloads nothing.
+
+    The rows are transcribed from model cards by hand, and model cards move.
+    This is the cheap way to find that out.
+    """
+    specs = [app.registry.get(model_id)] if model_id else app.registry.all()
+    worst = 0
+    for spec in specs:
+        result = app.models.verify(spec)
+        mark = "ok  " if result.ok else "FAIL"
+        size = f"{result.download_bytes / GB:.1f} GB" if result.download_bytes else "?"
+        print(f"{mark} {spec.id:<16} {spec.repository:<48} {size:>8}  {result.license or '?'}")
+        for problem in result.problems:
+            print(f"       ! {problem}")
+        for note in result.notes:
+            print(f"       - {note}")
+        if not result.ok:
+            worst = 1
+    if worst:
+        print(
+            "\nA failing row is a registry bug, not a dead end: point AI_MODEL_REGISTRY\n"
+            "at a JSON file with a corrected row of the same id to override it.",
+            file=sys.stderr,
+        )
+    return worst
 
 
 def _install(app: Container, model_id: str, force: bool) -> int:
@@ -76,6 +105,8 @@ def main(argv: list[str] | None = None) -> int:
     install = sub.add_parser("install", help="download a model's weights")
     install.add_argument("model_id")
     install.add_argument("--force", action="store_true", help="re-download even if complete")
+    verify = sub.add_parser("verify", help="check registry rows against Hugging Face")
+    verify.add_argument("model_id", nargs="?", help="omit to check every row")
     remove = sub.add_parser("remove", help="delete a model's weights")
     remove.add_argument("model_id")
     sub.add_parser("gpu", help="report the GPU")
@@ -86,6 +117,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "models":
             return _models(app)
+        if args.command == "verify":
+            return _verify(app, args.model_id)
         if args.command == "install":
             return _install(app, args.model_id, args.force)
         if args.command == "remove":

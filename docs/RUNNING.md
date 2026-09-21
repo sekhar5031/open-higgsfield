@@ -74,16 +74,41 @@ If that says `no CUDA device`, the toolkit is not wired up — back to step 1.
 
 ### 4. Install a model
 
-Not baked into the image, so this is a one-off download into the volume:
+**Validate the plumbing with the small one first.** `sd15` is ~4 GB, fits
+entirely in VRAM with no CPU offload, and answers in seconds — so a mistake
+costs a minute rather than a 34 GB download and an evening.
 
 ```bash
+docker compose exec local-ai python -m server.cli verify sd15   # checks, downloads nothing
+docker compose exec local-ai python -m server.cli install sd15
+```
+
+Generate once (below) to prove the whole path works, then move up:
+
+```bash
+docker compose exec local-ai python -m server.cli verify           # every row
 docker compose exec local-ai python -m server.cli install flux1-schnell
 docker compose exec local-ai python -m server.cli models
 ```
 
-Start with **schnell**: Apache-2.0, ungated, four steps. `flux1-dev` is gated
-and non-commercial — accept its licence on the model card, put `HF_TOKEN` in
-`.env`, and `docker compose up -d` again before installing it.
+`flux1-schnell` is Apache-2.0 and ungated but needs the WSL 2 memory above.
+`flux1-dev` is gated and non-commercial — accept its licence on the model
+card, put `HF_TOKEN` in `.env`, and `docker compose up -d` again first.
+
+#### `verify` first, always
+
+Registry rows are transcribed from model cards by hand, and model cards move —
+repositories get renamed, relicensed or gated. `verify` makes one API call and
+reports the real download size, the licence the repository actually states,
+and whether it is gated:
+
+```
+ok   sd15   stable-diffusion-v1-5/stable-diffusion-v1-5   4.2 GB  creativeml-openrail-m
+```
+
+A `FAIL` row is a bug in the registry, not a dead end. Point
+`AI_MODEL_REGISTRY` at a JSON file containing a corrected row with the same
+`id` and it overrides the built-in one — no need to edit the repository.
 
 ### 5. Generate
 
@@ -95,7 +120,7 @@ Open `http://localhost:3000` and jump to [Your first image](#your-first-image).
 | --- | --- |
 | `docker compose logs -f local-ai` | watch a generation run |
 | `docker compose exec local-ai python -m server.cli models` | what is installed |
-| `docker compose run --rm local-ai pytest` | verify the image (75 tests, no GPU needed) |
+| `docker compose run --rm local-ai pytest` | verify the image (91 tests, no GPU needed) |
 | `docker compose restart studio` | after changing `.env` |
 | `docker compose down` | stop; the volume and its weights survive |
 | `docker compose down -v` | stop **and delete the weights** |
@@ -119,7 +144,8 @@ on every 34 GB model load. Keep them in the volume; use
 `docker compose cp` if you need a file out.
 
 **Give WSL 2 the RAM.** This is the one most likely to catch you, and it is
-not obvious. FLUX.1 schnell is ~34 GB of bf16 weights, which does not fit in
+not obvious. It does not apply to `sd15`, which fits in VRAM outright — one
+more reason to validate with that first. FLUX.1 schnell is ~34 GB of bf16 weights, which does not fit in
 32 GB of VRAM, so the engine runs it with model CPU offload: the full pipeline
 stays resident in *host* memory and each component is paged onto the card as
 it executes. WSL 2 defaults to **half** your system RAM, so even a 64 GB
@@ -201,7 +227,8 @@ python -m server.cli gpu          # prove the card is visible before downloading
 
 ```bash
 cp .env.example .env              # set AI_ROOT to a disk with ~40 GB free
-python -m server.cli install flux1-schnell
+python -m server.cli verify sd15  # checks the row, downloads nothing
+python -m server.cli install sd15 # ~4 GB validation model
 uvicorn server.main:app --host 127.0.0.1 --port 8000
 ```
 
@@ -237,8 +264,12 @@ then:
 
 1. Click the model name in the composer
 2. Switch the segment from **Cloud** to **Local**
-3. Pick **FLUX.1 schnell**
+3. Pick **Stable Diffusion 1.5** (Local opens on it)
 4. Type a prompt and press `⌘/Ctrl + Enter`
+
+SD 1.5 is old and not very good. That is not the point: it is there to prove
+the chain — studio → API → router → engine → GPU → gallery — before anything
+large is downloaded. Once a picture lands, switch to FLUX.1 schnell.
 
 The first run pays the model load — tens of seconds off disk. After that the
 pipeline stays resident, and four steps at 1024² should take a few seconds.

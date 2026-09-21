@@ -24,7 +24,7 @@ NVIDIA Container Toolkit on the host.
 cd ..                             # compose lives at the repository root
 cp .env.docker.example .env
 docker compose up -d --build
-docker compose exec local-ai python -m server.cli install flux1-schnell
+docker compose exec local-ai python -m server.cli install sd15   # ~4 GB, validates the path
 docker compose run --rm local-ai pytest      # verify the image
 ```
 
@@ -67,6 +67,8 @@ Every path is separately overridable (`AI_MODEL_DIR`, `AI_OUTPUT_DIR`, …).
 
 ```bash
 python -m server.cli models              # what is registered and what is on disk
+python -m server.cli verify              # check every row against Hugging Face
+python -m server.cli install sd15        # ~4 GB — validate the path with this first
 python -m server.cli install flux1-schnell
 python -m server.cli install flux1-dev   # gated: accept its licence, set HF_TOKEN
 
@@ -151,7 +153,7 @@ and register the key in `engines/loader.py:BUILTIN`.
 ## Tests
 
 ```bash
-pytest          # 75 tests, no GPU and no weights required
+pytest          # 91 tests, no GPU and no weights required
 ```
 
 A fake engine is registered behind the real engine key, so routing, admission,

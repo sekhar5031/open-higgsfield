@@ -23,6 +23,10 @@ function localImage(spec: {
   steps: { min: number; max: number; default: number };
   guidance: { min: number; max: number; default: number; step?: number };
   maxImages: number;
+  /** A model whose ceiling is lower than the shared list declares its own,
+      so the rail never offers a size the service will silently clamp. */
+  resolutions?: readonly string[];
+  resolution?: string;
 }): ModelEntry {
   return {
     id: spec.id,
@@ -34,7 +38,11 @@ function localImage(spec: {
     roles: {},
     settings: {
       aspectRatio: { type: "enum", values: LOCAL_ASPECT, default: "1:1" },
-      resolution: { type: "enum", values: LOCAL_RESOLUTION, default: "1024" },
+      resolution: {
+        type: "enum",
+        values: spec.resolutions ?? LOCAL_RESOLUTION,
+        default: spec.resolution ?? "1024",
+      },
       steps: { type: "range", ...spec.steps },
       guidance: { type: "range", step: spec.guidance.step ?? 0.5, ...spec.guidance },
       /* A count key, so the studio's batch control drives it natively and one
@@ -43,6 +51,21 @@ function localImage(spec: {
     },
   };
 }
+
+/* First in the list and the one Local lands on: ~4 GB, fits in VRAM with no
+   CPU offload, and proves the whole path in seconds. Old and not very good —
+   that is fine, its job is to tell you the plumbing works before you spend
+   34 GB and an evening finding out it does not. */
+export const sd15Local = localImage({
+  id: "sd15",
+  label: "Stable Diffusion 1.5",
+  note: "Validation model · OpenRAIL-M · ~4 GB · fits in VRAM, no offload",
+  steps: { min: 10, max: 50, default: 25 },
+  guidance: { min: 1, max: 12, default: 7.5 },
+  maxImages: 4,
+  resolutions: ["512", "640", "768", "1024"],
+  resolution: "512",
+});
 
 export const fluxSchnellLocal = localImage({
   id: "flux1-schnell",
@@ -72,6 +95,7 @@ export const qwenImageLocal = localImage({
 });
 
 export const LOCAL_MODELS: readonly ModelEntry[] = [
+  sd15Local,
   fluxSchnellLocal,
   fluxDevLocal,
   qwenImageLocal,

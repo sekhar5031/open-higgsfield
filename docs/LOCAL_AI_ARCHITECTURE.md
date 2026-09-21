@@ -301,6 +301,7 @@ without touching code. Shipping with image only, per requirement 18.
 
 | id | Repository | License | Weights (bf16) | Status |
 | --- | --- | --- | --- | --- |
+| `sd15` | `stable-diffusion-v1-5/stable-diffusion-v1-5` | CreativeML OpenRAIL-M | ~4 GB | **validation model** — fits in VRAM, no offload, seconds per run |
 | `flux1-schnell` | `black-forest-labs/FLUX.1-schnell` | Apache-2.0 | ~24 GB | **default** — permissive, ungated, 4 steps |
 | `flux1-dev` | `black-forest-labs/FLUX.1-dev` | FLUX.1 Non-Commercial | ~24 GB | gated on HF; needs `HF_TOKEN` and licence acceptance |
 | `qwen-image` | `Qwen/Qwen-Image` | Apache-2.0 | ~41 GB | exceeds 32 GB in bf16 — enabled with CPU offload; quantised variants are the practical path |
@@ -317,10 +318,13 @@ before they are:
 | TTS | Qwen TTS or equivalent open-weight model | per-release | 4 |
 | LLM | Qwen / Llama class via `transformers` or `llama.cpp` | per-release | 5 |
 
-> Model availability, exact repository ids, sizes and licence terms move. Each
-> row is verified against the model card at install time — the registry records
-> `license` and `license_url`, and `POST /v1/models/{id}/install` refuses a
-> gated repository until the user has accepted its terms on Hugging Face.
+> Model availability, exact repository ids, sizes and licence terms move, and
+> the rows above are transcribed by hand. `server.cli verify` checks a row
+> against the live repository — real download size, the licence the repository
+> states, whether it is gated — in one API call and without downloading
+> anything. `AI_MODEL_REGISTRY` overrides any row by id, so a drifted entry is
+> corrected without touching this repository. Install additionally refuses a
+> gated repository until `HF_TOKEN` is set.
 
 ### Engine contract
 

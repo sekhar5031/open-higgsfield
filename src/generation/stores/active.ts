@@ -12,7 +12,9 @@ export const MAX_BATCH = 4;
 
 const FALLBACK: Record<Provider, string> = {
   remote: "seedance-2.5",
-  local: "flux1-schnell",
+  /* The small one. Switching to Local for the first time should land on the
+     model that answers in seconds, not the one that wants a 34 GB download. */
+  local: "sd15",
 };
 
 type ActiveState = {

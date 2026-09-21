@@ -7,6 +7,52 @@
   ],
   "models": [
     {
+      "id": "sd15",
+      "name": "Stable Diffusion 1.5",
+      "type": "image",
+      "tasks": [
+        "text-to-image"
+      ],
+      "source": "huggingface",
+      "repository": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+      "revision": "main",
+      "engine": "diffusers-t2i",
+      "pipeline": "StableDiffusionPipeline",
+      "size_gb": 4.3,
+      "vram_gb": 6.0,
+      "ram_gb": 8.0,
+      "license": "CreativeML OpenRAIL-M",
+      "license_url": "https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5",
+      "gated": false,
+      "offload": "none",
+      "description": "Small, old and fast. Here as the validation model: ~4 GB, fits entirely in VRAM with no CPU offload, and proves the whole path end to end in seconds rather than after a 34 GB download. Run `server.cli verify sd15` before installing.",
+      "load_kwargs": {
+        "safety_checker": null
+      },
+      "capabilities": {
+        "max_width": 1024,
+        "max_height": 1024,
+        "size_multiple": 8,
+        "steps": {
+          "min": 10,
+          "max": 50,
+          "default": 25
+        },
+        "guidance": {
+          "min": 1.0,
+          "max": 12.0,
+          "default": 7.5
+        },
+        "max_images": 4,
+        "supports_negative_prompt": true,
+        "supports_seed": true
+      },
+      "default_settings": {
+        "resolution": "512",
+        "aspectRatio": "1:1"
+      }
+    },
+    {
       "id": "flux1-schnell",
       "name": "FLUX.1 [schnell]",
       "type": "image",

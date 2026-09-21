@@ -7,6 +7,7 @@ the repository metadata. No URLs are hardcoded anywhere.
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import logging
 import shutil
@@ -14,6 +15,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable, Iterable
 
 from ..config import Settings
 from ..errors import DownloadError, GatedRepository, LocalAIError, OfflineError
@@ -28,6 +30,44 @@ log = logging.getLogger(__name__)
 #: is what "installed" means — a half-finished download leaves no marker, so an
 #: interrupted install is never mistaken for a usable one.
 MARKER = ".openhiggsfield-install.json"
+
+
+@dataclass
+class Verification:
+    """What the repository actually says, against what the registry claims.
+
+    Registry rows are written by hand from model cards, and model cards move:
+    repositories are renamed, relicensed, gated, or reorganised. Checking costs
+    one API call and catches a wrong row in seconds rather than at the end of a
+    34 GB download — or, worse, after it succeeds against the wrong weights.
+    """
+
+    model_id: str
+    repository: str
+    exists: bool
+    ok: bool
+    gated: bool = False
+    license: str | None = None
+    download_bytes: int = 0
+    file_count: int = 0
+    problems: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+
+def wanted_files(
+    names: Iterable[str],
+    allow_patterns: tuple[str, ...] | None,
+    ignore_patterns: tuple[str, ...],
+) -> list[str]:
+    """The files snapshot_download would actually fetch, by the same rules."""
+    kept = []
+    for name in names:
+        if allow_patterns and not any(fnmatch.fnmatch(name, p) for p in allow_patterns):
+            continue
+        if any(fnmatch.fnmatch(name, p) for p in ignore_patterns):
+            continue
+        kept.append(name)
+    return kept
 
 
 @dataclass
@@ -99,6 +139,92 @@ class ModelManager:
             fits_gpu=self.gpu.fits_device(spec.vram_gb),
             message=(task.error if task and task.error else None)
             or ("Interrupted download — install again to resume." if state == "corrupt" else None),
+        )
+
+    # -- verify -----------------------------------------------------------
+
+    def verify(self, spec: ModelSpec, model_info: Callable | None = None) -> Verification:
+        """Check a registry row against the live repository. Never downloads."""
+        if spec.source != "huggingface":
+            return Verification(
+                model_id=spec.id,
+                repository=spec.repository,
+                exists=False,
+                ok=False,
+                problems=[f"verification is only implemented for huggingface, not {spec.source}"],
+            )
+        if model_info is None:
+            try:
+                from huggingface_hub import HfApi  # noqa: PLC0415 - lazy
+            except ImportError as exc:
+                raise DownloadError(f"huggingface_hub is not installed ({exc})") from exc
+            model_info = HfApi().model_info
+
+        try:
+            info = model_info(
+                spec.repository,
+                revision=spec.revision,
+                files_metadata=True,
+                token=self.settings.hf_token,
+            )
+        except Exception as exc:
+            return Verification(
+                model_id=spec.id,
+                repository=spec.repository,
+                exists=False,
+                ok=False,
+                problems=[f"could not read the repository: {_short(exc)}"],
+            )
+
+        problems: list[str] = []
+        notes: list[str] = []
+
+        gated = bool(getattr(info, "gated", False) or False)
+        if gated and not spec.gated:
+            problems.append("repository is gated but the registry says it is not — set gated: true")
+        elif spec.gated and not gated:
+            notes.append("registry marks this gated; the repository no longer is")
+        if gated and not self.settings.hf_token:
+            problems.append("gated: accept the licence on the model card and set HF_TOKEN")
+
+        card = getattr(info, "card_data", None) or getattr(info, "cardData", None) or {}
+        license_id = card.get("license") if hasattr(card, "get") else None
+        if license_id and license_id.lower().replace(" ", "-") not in spec.license.lower().replace(" ", "-"):
+            notes.append(f"repository licence is {license_id!r}; registry says {spec.license!r}")
+
+        siblings = list(getattr(info, "siblings", None) or [])
+        names = [getattr(sib, "rfilename", "") for sib in siblings]
+        keep = set(wanted_files(names, spec.allow_patterns, spec.ignore_patterns))
+        total = sum(
+            int(getattr(sib, "size", 0) or 0)
+            for sib in siblings
+            if getattr(sib, "rfilename", "") in keep
+        )
+
+        if not keep:
+            problems.append("no files match this row's allow/ignore patterns")
+        if not any(name.endswith((".safetensors", ".gguf")) for name in keep):
+            problems.append("no .safetensors in the download set — check the patterns")
+
+        actual_gb = total / 1024**3
+        if total and abs(actual_gb - spec.size_gb) > max(2.0, spec.size_gb * 0.25):
+            notes.append(f"download is {actual_gb:.1f} GB; registry says {spec.size_gb:.1f} GB")
+
+        fits = self.gpu.fits_device(spec.vram_gb)
+        if fits is False:
+            problems.append(f"needs ~{spec.vram_gb:.0f} GB of VRAM, which exceeds this device")
+
+        return Verification(
+            model_id=spec.id,
+            repository=spec.repository,
+            exists=True,
+            ok=not problems,
+            gated=gated,
+            license=license_id,
+            download_bytes=total,
+            file_count=len(keep),
+            problems=problems,
+            notes=notes,
         )
 
     # -- install ----------------------------------------------------------
@@ -244,3 +370,8 @@ class ModelManager:
 
     def installed_count(self) -> int:
         return sum(1 for spec in self.registry.all() if self.is_installed(spec))
+
+
+def _short(exc: Exception) -> str:
+    text = str(exc).strip().splitlines()
+    return text[0][:200] if text else exc.__class__.__name__
